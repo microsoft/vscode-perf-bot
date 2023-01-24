@@ -9,6 +9,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { program, Option } from 'commander';
 import fetch from 'node-fetch';
+import chalk from 'chalk';
 
 interface Opts {
     readonly slackToken: string;
@@ -24,6 +25,58 @@ const Constants = {
     PERF_FILE: path.join(tmpdir(), 'vscode-perf-bot', "prof-startup.txt"),
     FAST: 2000,
     RUNTIME: 'desktop'
+}
+
+async function runPerformanceTest(opts: Opts): Promise<void> {
+    console.log(`${chalk.gray('[init]')} storing performance results in ${chalk.green(Constants.PERF_FILE)}`);
+    fs.mkdirSync(path.dirname(Constants.PERF_FILE), { recursive: true });
+
+    const args: string[] = [
+        'vscode-bisect',
+        '-p',
+        Constants.PERF_FILE,
+        '-c',
+        'latest',
+        '-r',
+        Constants.RUNTIME
+    ]
+
+    if (opts.githubToken) {
+        args.push('-t', opts.githubToken);
+    }
+    if (opts.verbose) {
+        args.push('-v');
+    }
+    if (opts.reset) {
+        args.push('--reset');
+    }
+
+    return new Promise(resolve => {
+        const npx = cp.spawn('npx', args, {
+            shell: true,
+            timeout: 1000 * 60 * 60 * 1, // 1h
+        });
+
+        console.log(`${chalk.gray('[exec]')} started npx process with pid ${chalk.green(npx.pid)}`);
+
+        npx.stdout.on('data', data => {
+            console.log(`${chalk.gray('[exec]')} ${data.toString().trim()}`);
+        });
+
+        npx.stderr.on('data', data => {
+            console.error(`${chalk.gray('[exec]')} ${data.toString().trim()}`);
+        });
+
+        npx.on('error', error => {
+            console.error(`${chalk.gray('[exec]')} failed to execute (${error.toString().trim()})`);
+        });
+
+        npx.on('close', (code, signal) => {
+            console.log(`${chalk.gray('[exec]')} finished with exit code ${chalk.green(code)} and signal ${chalk.green(signal)}`);
+
+            resolve();
+        });
+    });
 }
 
 function parsePerfFile(): string {
@@ -54,27 +107,35 @@ function parsePerfFile(): string {
         lines.push(`${duration < Constants.FAST ? "FAST" : "SLOW"} ${line}`);
     }
 
+    console.log(`${chalk.gray('[perf]')} overall result: BEST ${chalk.green(`${bestDuration}ms`)}, VERSION ${chalk.green(commitValue)}, APP ${chalk.green(`${appNameValue}_${Constants.RUNTIME}`)}`);
+
     return `${bestDuration! < Constants.FAST ? ':rocket:' : ':hankey:'} Summary: BEST \`${bestDuration}ms\`, VERSION \`${commitValue}\`, APP \`${appNameValue}_${Constants.RUNTIME}\` :apple: :vscode-insiders:
 \`\`\`${lines.join("\n")}\`\`\``;
 }
 
 async function sendSlackMessage(message: string, opts: Opts): Promise<void> {
-    await fetch(`https://hooks.slack.com/services/${opts.slackToken}`, {
-        method: 'post',
-        body: JSON.stringify({
-            text: message,
-            mrkdwn: true,
-            username: `macOS_${Constants.RUNTIME}`,
-        }),
-        headers: { 'Content-Type': 'application/json' }
-    });
+    try {
+        const response = await fetch(`https://hooks.slack.com/services/${opts.slackToken}`, {
+            method: 'post',
+            body: JSON.stringify({
+                text: message,
+                mrkdwn: true,
+                username: `macOS_${Constants.RUNTIME}`,
+            }),
+            headers: { 'Content-Type': 'application/json' }
+        });
+
+        console.log(`${chalk.gray('[http]')} posting to chat returned with status code ${chalk.green(`${response.status}`)}`);
+    } catch (error) {
+        console.error(`${chalk.red('[http]')} posting to chat failed: ${error}`);
+    }
 }
 
 module.exports = async function (argv: string[]): Promise<void> {
 
     program
         .addOption(new Option('-r, --runtime <runtime>', 'whether to measure startup performance with a local web, online vscode.dev or local desktop (default) version').choices(['desktop', 'web', 'vscode.dev']))
-        .option('-r, --reset', 'deletes the cache folder (use only for troubleshooting)')
+        .option('--reset', 'deletes the cache folder (use only for troubleshooting)')
         .option('-f, --fast <number>', 'what time is considered a fast performance run')
         .requiredOption('--github-token <token>', `a GitHub token of scopes 'repo', 'workflow', 'user:email', 'read:user' to enable additional performance tests targetting web`)
         .requiredOption('--slack-token <token>', `a Slack token for writing Slack messages`)
@@ -88,25 +149,8 @@ module.exports = async function (argv: string[]): Promise<void> {
         Constants.RUNTIME = opts.runtime;
     }
 
-    fs.mkdirSync(path.dirname(Constants.PERF_FILE), { recursive: true });
-
-    const args: string[] = [
-        `-p ${Constants.PERF_FILE}`,
-        '-c latest',
-        `-r ${Constants.RUNTIME}`
-    ];
-    if (opts.githubToken) {
-        args.push(`-t ${opts.githubToken}`);
-    }
-    if (opts.verbose) {
-        args.push('-v');
-    }
-    if (opts.reset) {
-        args.push('-r');
-    }
-
     // Run performance test and write to prof-startup.txt
-    cp.execSync(`npx vscode-bisect ${args.join(' ')}`);
+    await runPerformanceTest(opts);
 
     // Parse performance result file
     const message = parsePerfFile();

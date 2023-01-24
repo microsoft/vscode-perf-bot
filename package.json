@@ -31,6 +31,7 @@
         "typescript": "4.9.x"
     },
     "dependencies": {
+        "chalk": "^4.x",
         "commander": "^9.4.0",
         "node-fetch": "2.6.8"
     }
