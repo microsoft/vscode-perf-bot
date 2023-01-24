@@ -1,0 +1,37 @@
+{
+    "name": "vscode-perf-bot",
+    "version": "0.0.1",
+    "description": "Allows to run performance tests with Slack bot messages for VS Code.",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/bpasero/vscode-perf-bot"
+    },
+    "homepage": "https://github.com/bpasero/vscode-perf-bot",
+    "keywords": [
+        "vscode"
+    ],
+    "license": "MIT",
+    "authors": "bpasero",
+    "main": "out/index",
+    "bin": {
+        "vscode-perf-bot": "bin/vscode-perf-bot"
+    },
+    "scripts": {
+        "compile": "tsc -p ./",
+        "build": "tsc -p ./",
+        "watch": "tsc -watch -p ./",
+        "prepare": "npm run build"
+    },
+    "engines": {
+        "node": ">= 16"
+    },
+    "devDependencies": {
+        "@types/node": "18.x",
+        "@types/node-fetch": "^2.6.2",
+        "typescript": "4.9.x"
+    },
+    "dependencies": {
+        "commander": "^9.4.0",
+        "node-fetch": "2.6.8"
+    }
+}

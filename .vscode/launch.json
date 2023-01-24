@@ -1,0 +1,10 @@
+{
+    "configurations": [
+    {
+        "name": "Launch Program",
+        "program": "${workspaceFolder}/bin/vscode-perf-bot",
+        "request": "launch",
+        "type": "pwa-node"
+    }
+    ]
+}
