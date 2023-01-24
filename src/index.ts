@@ -51,7 +51,7 @@ function parsePerfFile(): string {
             bestDuration = duration;
         }
 
-        lines.push(`${duration < Constants.FAST ? "FAST" : "SLOW"}\t${line}`);
+        lines.push(`${duration < Constants.FAST ? "FAST" : "SLOW"} ${line}`);
     }
 
     return `${bestDuration! < Constants.FAST ? ':rocket:' : ':hankey:'} Summary: BEST \`${bestDuration}ms\`, VERSION \`${commitValue}\`, APP \`${appNameValue}_${Constants.RUNTIME}\` :apple: :vscode-insiders:
