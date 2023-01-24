@@ -80,7 +80,7 @@ async function runPerformanceTest(opts: Opts): Promise<void> {
 }
 
 function parsePerfFile(): string {
-    const raw = fs.readFileSync(Constants.PERF_FILE, "utf-8").toString();
+    const raw = fs.readFileSync(Constants.PERF_FILE, 'utf-8').toString();
     const rawLines = raw.split(/\r?\n/);
 
     const lines: string[] = [];
@@ -104,7 +104,7 @@ function parsePerfFile(): string {
             bestDuration = duration;
         }
 
-        lines.push(`${duration < Constants.FAST ? "FAST" : "SLOW"} ${line}`);
+        lines.push(`${duration < Constants.FAST ? 'FAST' : 'SLOW'} ${line}`);
     }
 
     console.log(`${chalk.gray('[perf]')} overall result: BEST ${chalk.green(`${bestDuration}ms`)}, VERSION ${chalk.green(commitValue)}, APP ${chalk.green(`${appNameValue}_${Constants.RUNTIME}`)}`);
@@ -125,7 +125,7 @@ async function sendSlackMessage(message: string, opts: Opts): Promise<void> {
             headers: { 'Content-Type': 'application/json' }
         });
 
-        console.log(`${chalk.gray('[http]')} posting to chat returned with status code ${chalk.green(`${response.status}`)}`);
+        console.log(`${chalk.gray('[http]')} posting to chat returned with status code ${chalk.green(response.status)}`);
     } catch (error) {
         console.error(`${chalk.red('[http]')} posting to chat failed: ${error}`);
     }
