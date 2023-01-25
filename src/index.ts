@@ -79,7 +79,7 @@ async function runPerformanceTest(opts: Opts): Promise<void> {
     });
 }
 
-function parsePerfFile(): string {
+function parsePerfFile(): string | undefined {
     const raw = fs.readFileSync(Constants.PERF_FILE, 'utf-8').toString();
     const rawLines = raw.split(/\r?\n/);
 
@@ -105,6 +105,12 @@ function parsePerfFile(): string {
         }
 
         lines.push(`${duration < Constants.FAST ? 'FAST' : 'SLOW'} ${line}`);
+    }
+
+    if (lines.length !== 10) {
+        console.error(`${chalk.red('[perf] unexpected number of performance results, refusing to send chat message')}`);
+
+        return undefined;
     }
 
     console.log(`${chalk.gray('[perf]')} overall result: BEST ${chalk.green(`${bestDuration}ms`)}, VERSION ${chalk.green(commitValue)}, APP ${chalk.green(`${appNameValue}_${Constants.RUNTIME}`)}`);
@@ -156,5 +162,7 @@ module.exports = async function (argv: string[]): Promise<void> {
     const message = parsePerfFile();
 
     // Send message to Slack
-    await sendSlackMessage(message, opts);
+    if (message) {
+        await sendSlackMessage(message, opts);
+    }
 }
