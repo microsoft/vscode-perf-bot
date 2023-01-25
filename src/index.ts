@@ -10,6 +10,7 @@ import * as fs from 'fs';
 import { program, Option } from 'commander';
 import fetch from 'node-fetch';
 import chalk from 'chalk';
+import { Octokit } from "@octokit/rest";
 
 interface Opts {
     readonly slackToken: string;
@@ -19,16 +20,53 @@ interface Opts {
     readonly verbose?: boolean;
     readonly fast?: number;
     readonly reset?: boolean;
+    readonly gist?: string;
 }
 
 const Constants = {
     PERF_FILE: path.join(tmpdir(), 'vscode-perf-bot', "prof-startup.txt"),
     FAST: 2000,
-    RUNTIME: 'desktop'
+    RUNTIME: 'desktop',
+    DATE: new Date(),
+    TIMEOUT: 1000 * 60 * 60 * 1, // 1h
+}
+
+const logEntries: string[] = [];
+const ansicolors = /[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g;
+function log(message: string, asError = false): void {
+    if (asError) {
+        console.error(message);
+    } else {
+        console.log(message);
+    }
+
+    logEntries.push(message.replace(ansicolors, '')); // remove ANSI escape codes
+}
+
+async function logGist(opts: Opts): Promise<void> {
+    if (!opts.gist) {
+        return;
+    }
+
+    log(`${chalk.gray('[http]')} posting logs to Gist`);
+
+    const octokit = new Octokit({
+        auth: opts.githubToken,
+        userAgent: 'vscode-perf-bot',
+    });
+
+    await octokit.gists.update({
+        gist_id: opts.gist,
+        files: {
+            [`output-${Constants.DATE.toISOString().replace(/:/g, '-')}.log`]: {
+                content: logEntries.join('\n')
+            }
+        }
+    });
 }
 
 async function runPerformanceTest(opts: Opts): Promise<void> {
-    console.log(`${chalk.gray('[init]')} storing performance results in ${chalk.green(Constants.PERF_FILE)}`);
+    log(`${chalk.gray('[init]')} storing performance results in ${chalk.green(Constants.PERF_FILE)}`);
     fs.mkdirSync(path.dirname(Constants.PERF_FILE), { recursive: true });
 
     const args: string[] = [
@@ -54,25 +92,25 @@ async function runPerformanceTest(opts: Opts): Promise<void> {
     return new Promise(resolve => {
         const npx = cp.spawn('npx', args, {
             shell: true,
-            timeout: 1000 * 60 * 60 * 1, // 1h
+            timeout: Constants.TIMEOUT
         });
 
-        console.log(`${chalk.gray('[exec]')} started npx process with pid ${chalk.green(npx.pid)}`);
+        log(`${chalk.gray('[exec]')} started npx process with pid ${chalk.green(npx.pid)}`);
 
         npx.stdout.on('data', data => {
-            console.log(`${chalk.gray('[exec]')} ${data.toString().trim()}`);
+            log(`${chalk.gray('[exec]')} ${data.toString().trim()}`);
         });
 
         npx.stderr.on('data', data => {
-            console.error(`${chalk.gray('[exec]')} ${data.toString().trim()}`);
+            log(`${chalk.gray('[exec]')} ${data.toString().trim()}`, true);
         });
 
         npx.on('error', error => {
-            console.error(`${chalk.gray('[exec]')} failed to execute (${error.toString().trim()})`);
+            log(`${chalk.gray('[exec]')} failed to execute (${error.toString().trim()})`, true);
         });
 
         npx.on('close', (code, signal) => {
-            console.log(`${chalk.gray('[exec]')} finished with exit code ${chalk.green(code)} and signal ${chalk.green(signal)}`);
+            log(`${chalk.gray('[exec]')} finished with exit code ${chalk.green(code)} and signal ${chalk.green(signal)}`);
 
             resolve();
         });
@@ -108,12 +146,12 @@ function parsePerfFile(): string | undefined {
     }
 
     if (lines.length !== 10) {
-        console.error(`${chalk.red('[perf] unexpected number of performance results, refusing to send chat message')}`);
+        log(`${chalk.red('[perf] unexpected number of performance results, refusing to send chat message')}`, true);
 
         return undefined;
     }
 
-    console.log(`${chalk.gray('[perf]')} overall result: BEST ${chalk.green(`${bestDuration}ms`)}, VERSION ${chalk.green(commitValue)}, APP ${chalk.green(`${appNameValue}_${Constants.RUNTIME}`)}`);
+    log(`${chalk.gray('[perf]')} overall result: BEST ${chalk.green(`${bestDuration}ms`)}, VERSION ${chalk.green(commitValue)}, APP ${chalk.green(`${appNameValue}_${Constants.RUNTIME}`)}`);
 
     return `${bestDuration! < Constants.FAST ? ':rocket:' : ':hankey:'} Summary: BEST \`${bestDuration}ms\`, VERSION \`${commitValue}\`, APP \`${appNameValue}_${Constants.RUNTIME}\` :apple: :vscode-insiders:
 \`\`\`${lines.join("\n")}\`\`\``;
@@ -131,9 +169,9 @@ async function sendSlackMessage(message: string, opts: Opts): Promise<void> {
             headers: { 'Content-Type': 'application/json' }
         });
 
-        console.log(`${chalk.gray('[http]')} posting to chat returned with status code ${chalk.green(response.status)}`);
+        log(`${chalk.gray('[http]')} posting to chat returned with status code ${chalk.green(response.status)}`);
     } catch (error) {
-        console.error(`${chalk.red('[http]')} posting to chat failed: ${error}`);
+        log(`${chalk.red('[http]')} posting to chat failed: ${error}`, true);
     }
 }
 
@@ -145,7 +183,8 @@ module.exports = async function (argv: string[]): Promise<void> {
         .addOption(new Option('-r, --runtime <runtime>', 'whether to measure startup performance with a local web, online vscode.dev or local desktop (default) version').choices(['desktop', 'web', 'vscode.dev']))
         .option('--reset', 'deletes the cache folder (use only for troubleshooting)')
         .option('-f, --fast <number>', 'what time is considered a fast performance run')
-        .requiredOption('--github-token <token>', `a GitHub token of scopes 'repo', 'workflow', 'user:email', 'read:user' to enable additional performance tests targetting web`)
+        .option('--gist <id>', 'a Gist ID to write all log messages to')
+        .requiredOption('--github-token <token>', `a GitHub token of scopes 'repo', 'workflow', 'user:email', 'read:user', 'gist' to enable additional performance tests targetting web and logging to a Gist`)
         .requiredOption('--slack-token <token>', `a Slack token for writing Slack messages`)
         .option('-v, --verbose', 'logs verbose output to the console when errors occur');
 
@@ -157,14 +196,29 @@ module.exports = async function (argv: string[]): Promise<void> {
         Constants.RUNTIME = opts.runtime;
     }
 
-    // Run performance test and write to prof-startup.txt
-    await runPerformanceTest(opts);
+    const timeoutHandle = setTimeout(() => {
+        log(`${chalk.yellow('[perf]')} already half of the timeout reached!`);
+        logGist(opts);
+    }, Constants.TIMEOUT / 2);
 
-    // Parse performance result file
-    const message = parsePerfFile();
+    try {
 
-    // Send message to Slack
-    if (message) {
-        await sendSlackMessage(message, opts);
+        // Run performance test and write to prof-startup.txt
+        await runPerformanceTest(opts);
+
+        // Parse performance result file
+        const message = parsePerfFile();
+
+        // Send message to Slack
+        if (message) {
+            await sendSlackMessage(message, opts);
+        }
+    } catch (e) {
+        log(`${chalk.red('[perf]')} failed to run performance test: ${e}`, true);
     }
+
+    clearTimeout(timeoutHandle);
+
+    // Write all logs to Gist
+    await logGist(opts);
 }
