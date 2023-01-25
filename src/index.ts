@@ -139,6 +139,8 @@ async function sendSlackMessage(message: string, opts: Opts): Promise<void> {
 
 module.exports = async function (argv: string[]): Promise<void> {
 
+    program.addHelpText('beforeAll', `Version: ${require('../package.json').version}\n`);
+
     program
         .addOption(new Option('-r, --runtime <runtime>', 'whether to measure startup performance with a local web, online vscode.dev or local desktop (default) version').choices(['desktop', 'web', 'vscode.dev']))
         .option('--reset', 'deletes the cache folder (use only for troubleshooting)')
