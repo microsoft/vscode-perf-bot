@@ -31,7 +31,12 @@ const Constants = {
     TIMEOUT: 1000 * 60 * 60 * 1, // 1h
 }
 
-const logEntries: string[] = [];
+interface ILogEntry {
+    date: Date;
+    message: string;
+}
+
+const logEntries: ILogEntry[] = [];
 const ansicolors = /[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g;
 function log(message: string, asError = false): void {
     if (asError) {
@@ -40,7 +45,10 @@ function log(message: string, asError = false): void {
         console.log(message);
     }
 
-    logEntries.push(message.replace(ansicolors, '')); // remove ANSI escape codes
+    logEntries.push({
+        date: new Date(),
+        message: message.replace(ansicolors, '') // remove ANSI escape codes
+    });
 }
 
 async function logGist(opts: Opts): Promise<void> {
@@ -59,7 +67,7 @@ async function logGist(opts: Opts): Promise<void> {
         gist_id: opts.gist,
         files: {
             [`output-${Constants.DATE.toISOString().replace(/:/g, '-')}.log`]: {
-                content: logEntries.join('\n')
+                content: logEntries.map(entry => `${entry.date.toISOString()} ${entry.message}`).join('\n')
             }
         }
     });
@@ -145,8 +153,8 @@ function parsePerfFile(): string | undefined {
         lines.push(`${duration < Constants.FAST ? 'FAST' : 'SLOW'} ${line}`);
     }
 
-    if (lines.length !== 10) {
-        log(`${chalk.red('[perf] unexpected number of performance results, refusing to send chat message')}`, true);
+    if (lines.length < 5) {
+        log(`${chalk.red('[perf] found less than 5 performance results, refusing to send chat message')}`, true);
 
         return undefined;
     }
