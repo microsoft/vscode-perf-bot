@@ -13,15 +13,17 @@ import { Octokit } from "@octokit/rest";
 import { WebClient, LogLevel, ChatPostMessageArguments } from "@slack/web-api";
 
 interface Opts {
-    readonly slackToken: string;
+    readonly slackToken?: string;
     readonly slackMessageThreads?: string;
-    readonly githubToken: string;
+
+    readonly githubToken?: string;
+    readonly gist?: string;
 
     readonly runtime?: 'web' | 'desktop' | 'vscode.dev';
-    readonly verbose?: boolean;
     readonly fast?: number;
+
+    readonly verbose?: boolean;
     readonly reset?: boolean;
-    readonly gist?: string;
 }
 
 const Constants = {
@@ -53,7 +55,7 @@ function log(message: string, asError = false): void {
 }
 
 async function logGist(opts: Opts): Promise<void> {
-    if (!opts.gist) {
+    if (!opts.gist || !opts.githubToken) {
         return;
     }
 
@@ -174,6 +176,9 @@ function parsePerfFile(): PerfData | undefined {
 }
 
 async function sendSlackMessage(data: PerfData, opts: Opts): Promise<void> {
+    if (!opts.slackToken) {
+        return;
+    }
 
     // try to load message threads
     let messageThreadsByCommit = new Map<string, string>();
@@ -192,10 +197,19 @@ async function sendSlackMessage(data: PerfData, opts: Opts): Promise<void> {
 
     const slack = new WebClient(opts.slackToken, { logLevel: LogLevel.ERROR });
 
+    let username: string;
+    if (process.platform === 'darwin') {
+        username = `macOS_${Constants.RUNTIME}`;
+    } else if (process.platform === 'win32') {
+        username = `Windows_${Constants.RUNTIME}`;
+    } else {
+        username = `Linux_${Constants.RUNTIME}`;
+    }
+
     const stub: ChatPostMessageArguments = {
         channel: 'C3NBSM7K3',
         icon_emoji: ':robot_face:',
-        username: `macOS_${Constants.RUNTIME}`, // TODO username should honor platform
+        username
     }
 
     const summary = `${bestDuration! < Constants.FAST ? ':rocket:' : ':hankey:'} Summary: BEST \`${bestDuration}ms\`, VERSION \`${commit}\`, APP \`${appName}_${Constants.RUNTIME}\` :apple: :vscode-insiders:`
@@ -237,8 +251,8 @@ module.exports = async function (argv: string[]): Promise<void> {
         .option('--reset', 'deletes the cache folder (use only for troubleshooting)')
         .option('-f, --fast <number>', 'what time is considered a fast performance run')
         .option('--gist <id>', 'a Gist ID to write all log messages to')
-        .requiredOption('--github-token <token>', `a GitHub token of scopes 'repo', 'workflow', 'user:email', 'read:user', 'gist' to enable additional performance tests targetting web and logging to a Gist`)
-        .requiredOption('--slack-token <token>', `a Slack token for writing Slack messages`)
+        .option('--github-token <token>', `a GitHub token of scopes 'repo', 'workflow', 'user:email', 'read:user', 'gist' to enable additional performance tests targetting web and logging to a Gist`)
+        .option('--slack-token <token>', `a Slack token for writing Slack messages`)
         .option('--slack-message-threads <filepath>', `a file in which commit -> message thread mappings are stored`)
         .option('-v, --verbose', 'logs verbose output to the console when errors occur');
 
