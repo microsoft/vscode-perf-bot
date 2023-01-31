@@ -8,12 +8,13 @@ import { tmpdir } from 'os';
 import * as path from 'path';
 import * as fs from 'fs';
 import { program, Option } from 'commander';
-import fetch from 'node-fetch';
 import chalk from 'chalk';
 import { Octokit } from "@octokit/rest";
+import { WebClient, LogLevel, ChatPostMessageArguments } from "@slack/web-api";
 
 interface Opts {
     readonly slackToken: string;
+    readonly slackMessageThreads?: string;
     readonly githubToken: string;
 
     readonly runtime?: 'web' | 'desktop' | 'vscode.dev';
@@ -125,7 +126,14 @@ async function runPerformanceTest(opts: Opts): Promise<void> {
     });
 }
 
-function parsePerfFile(): string | undefined {
+type PerfData = {
+    readonly commit: string;
+    readonly appName: string;
+    readonly bestDuration: number;
+    readonly lines: string[];
+}
+
+function parsePerfFile(): PerfData | undefined {
     const raw = fs.readFileSync(Constants.PERF_FILE, 'utf-8').toString();
     const rawLines = raw.split(/\r?\n/);
 
@@ -133,7 +141,7 @@ function parsePerfFile(): string | undefined {
 
     let commitValue = 'unknown';
     let appNameValue = 'unknown';
-    let bestDuration: number | undefined = undefined;
+    let bestDuration: number = Number.MAX_SAFE_INTEGER
     for (const line of rawLines) {
         if (!line) {
             continue;
@@ -144,9 +152,7 @@ function parsePerfFile(): string | undefined {
 
         appNameValue = appName;
         commitValue = commit;
-        if (!bestDuration) {
-            bestDuration = duration;
-        } else if (duration < bestDuration) {
+        if (duration < bestDuration) {
             bestDuration = duration;
         }
 
@@ -159,27 +165,66 @@ function parsePerfFile(): string | undefined {
         return undefined;
     }
 
-    log(`${chalk.gray('[perf]')} overall result: BEST ${chalk.green(`${bestDuration}ms`)}, VERSION ${chalk.green(commitValue)}, APP ${chalk.green(`${appNameValue}_${Constants.RUNTIME}`)}`);
-
-    return `${bestDuration! < Constants.FAST ? ':rocket:' : ':hankey:'} Summary: BEST \`${bestDuration}ms\`, VERSION \`${commitValue}\`, APP \`${appNameValue}_${Constants.RUNTIME}\` :apple: :vscode-insiders:
-\`\`\`${lines.join("\n")}\`\`\``;
+    return {
+        commit: commitValue,
+        appName: appNameValue,
+        bestDuration: bestDuration,
+        lines
+    }
 }
 
-async function sendSlackMessage(message: string, opts: Opts): Promise<void> {
-    try {
-        const response = await fetch(`https://hooks.slack.com/services/${opts.slackToken}`, {
-            method: 'post',
-            body: JSON.stringify({
-                text: message,
-                mrkdwn: true,
-                username: `macOS_${Constants.RUNTIME}`,
-            }),
-            headers: { 'Content-Type': 'application/json' }
+async function sendSlackMessage(data: PerfData, opts: Opts): Promise<void> {
+
+    // try to load message threads
+    let messageThreadsByCommit = new Map<string, string>();
+    if (opts.slackMessageThreads) {
+        const filepath = path.resolve(opts.slackMessageThreads);
+        try {
+            const data = await fs.promises.readFile(filepath, 'utf-8');
+            messageThreadsByCommit = new Map(JSON.parse(data));
+        } catch (err) {
+            log(`${chalk.gray('[perf]')} failed to load message threads from ${chalk.green(filepath)}`);
+        }
+    }
+
+
+    const { commit, bestDuration, appName, lines } = data;
+
+    const slack = new WebClient(opts.slackToken, { logLevel: LogLevel.ERROR });
+
+    const stub: ChatPostMessageArguments = {
+        channel: 'C3NBSM7K3',
+        icon_emoji: ':robot_face:',
+        username: `macOS_${Constants.RUNTIME}`, // TODO username should honor platform
+    }
+
+    const summary = `${bestDuration! < Constants.FAST ? ':rocket:' : ':hankey:'} Summary: BEST \`${bestDuration}ms\`, VERSION \`${commit}\`, APP \`${appName}_${Constants.RUNTIME}\` :apple: :vscode-insiders:`
+    const detail = `\`\`\`${lines.join("\n")}\`\`\``;
+
+    // goal: one message-thread per commit.
+    // check for an existing thread and post a reply to it. 
+    let thread_ts = messageThreadsByCommit.get(commit);
+    if (!thread_ts) {
+        const result = await slack.chat.postMessage({
+            ...stub,
+            text: summary
         });
 
-        log(`${chalk.gray('[http]')} posting to chat returned with status code ${chalk.green(response.status)}`);
-    } catch (error) {
-        log(`${chalk.red('[http]')} posting to chat failed: ${error}`, true);
+        if (result.ts) {
+            thread_ts = result.ts
+            messageThreadsByCommit.set(commit, thread_ts);
+        }
+    }
+
+    await slack.chat.postMessage({
+        ...stub,
+        text: detail,
+        thread_ts,
+    });
+
+    if (opts.slackMessageThreads) {
+        const raw = JSON.stringify([...messageThreadsByCommit]);
+        await fs.promises.writeFile(opts.slackMessageThreads, raw, 'utf-8');
     }
 }
 
@@ -194,6 +239,7 @@ module.exports = async function (argv: string[]): Promise<void> {
         .option('--gist <id>', 'a Gist ID to write all log messages to')
         .requiredOption('--github-token <token>', `a GitHub token of scopes 'repo', 'workflow', 'user:email', 'read:user', 'gist' to enable additional performance tests targetting web and logging to a Gist`)
         .requiredOption('--slack-token <token>', `a Slack token for writing Slack messages`)
+        .option('--slack-message-threads <filepath>', `a file in which commit -> message thread mappings are stored`)
         .option('-v, --verbose', 'logs verbose output to the console when errors occur');
 
     const opts: Opts = program.parse(argv).opts();
@@ -215,11 +261,12 @@ module.exports = async function (argv: string[]): Promise<void> {
         await runPerformanceTest(opts);
 
         // Parse performance result file
-        const message = parsePerfFile();
+        const data = parsePerfFile();
 
         // Send message to Slack
-        if (message) {
-            await sendSlackMessage(message, opts);
+        if (data) {
+            log(`${chalk.gray('[perf]')} overall result: BEST ${chalk.green(`${data.bestDuration}ms`)}, VERSION ${chalk.green(data.commit)}, APP ${chalk.green(`${data.appName}_${Constants.RUNTIME}`)}`);
+            await sendSlackMessage(data, opts);
         }
     } catch (e) {
         log(`${chalk.red('[perf]')} failed to run performance test: ${e}`, true);
