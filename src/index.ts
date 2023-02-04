@@ -15,7 +15,7 @@ import { WebClient, LogLevel, ChatPostMessageArguments } from '@slack/web-api';
 interface Opts {
     readonly runtime?: 'desktop' | 'web';
     readonly quality?: 'stable' | 'insider' | 'exploration';
-   
+
     readonly folder?: string;
     readonly file?: string;
 
@@ -254,7 +254,6 @@ async function sendSlackMessage(data: PerfData, opts: Opts): Promise<void> {
 
     const stub: ChatPostMessageArguments = {
         channel: 'C3NBSM7K3',
-        icon_emoji: ':robot_face:',
         username
     }
 
