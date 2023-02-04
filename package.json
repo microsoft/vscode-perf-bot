@@ -11,7 +11,9 @@
         "vscode"
     ],
     "license": "MIT",
-    "authors": "microsoft",
+    "author": {
+        "name": "Microsoft Corporation"
+    },
     "main": "out/index",
     "bin": {
         "vscode-perf-bot": "bin/vscode-perf-bot"
