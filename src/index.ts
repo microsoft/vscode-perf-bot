@@ -230,17 +230,15 @@ async function sendSlackMessage(data: PerfData, opts: Opts): Promise<void> {
 
     const slack = new WebClient(opts.slackToken, { logLevel: LogLevel.ERROR });
 
-    let username: string;
     let platformIcon: string;
-    if (process.platform === 'darwin') {
-        username = `macOS_${Constants.RUNTIME}`;
-        platformIcon = ':apple:';
+    if (opts.runtime === 'web') {
+        platformIcon = ':chrome:';
+    } else if (process.platform === 'darwin') {
+        platformIcon = ':macos:';
     } else if (process.platform === 'win32') {
-        username = `Windows_${Constants.RUNTIME}`;
-        platformIcon = ':windows:';
+        platformIcon = ':win-10:';
     } else {
-        username = `Linux_${Constants.RUNTIME}`;
-        platformIcon = ':penguin:';
+        platformIcon = ':linux:';
     }
 
     let qualityIcon: string;
@@ -254,10 +252,10 @@ async function sendSlackMessage(data: PerfData, opts: Opts): Promise<void> {
 
     const stub: ChatPostMessageArguments = {
         channel: 'C3NBSM7K3',
-        username
+        username: 'Bot'
     }
 
-    const summary = `${bestDuration! < Constants.FAST ? ':rocket:' : ':hankey:'} Summary: BEST \`${bestDuration}ms\`, VERSION \`${commit}\`, APP \`${appName}_${Constants.RUNTIME}\` ${platformIcon} ${qualityIcon}`
+    const summary = `${platformIcon} ${qualityIcon} ${bestDuration! < Constants.FAST ? ':rocket:' : ':hankey:'} Summary: BEST \`${bestDuration}ms\`, VERSION \`${commit}\``
     const detail = `\`\`\`${lines.join('\n')}\`\`\``;
 
     // goal: one message-thread per commit.
