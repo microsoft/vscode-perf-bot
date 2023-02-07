@@ -255,7 +255,11 @@ async function sendSlackMessage(data: PerfData, opts: Opts): Promise<void> {
         username: 'Bot'
     }
 
-    const summary = `${platformIcon} ${qualityIcon} ${bestDuration! < Constants.FAST ? ':rocket:' : ':hankey:'} Summary: BEST \`${bestDuration}ms\`, VERSION \`${commit}\``
+    let summary = `${platformIcon} ${qualityIcon} ${bestDuration! < Constants.FAST ? ':rocket:' : ':hankey:'} Summary: BEST \`${bestDuration}ms\`, VERSION \`${commit}\``;
+    if (opts.runtime === 'web') {
+        summary += `, SCENARIO \`${opts.gist ? 'standard remote' : 'empty window'}\``;
+    }
+
     const detail = `\`\`\`${lines.join('\n')}\`\`\``;
 
     // goal: one message-thread per commit.
