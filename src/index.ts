@@ -114,13 +114,23 @@ async function runPerformanceTest(opts: Opts): Promise<void> {
         build,
         '--runtime',
         Constants.RUNTIME,
-        '--unreleased',
         '--prof-append-timers',
         Constants.PERF_FILE,
         '--runs',
         '10'
     ]
 
+    if (opts.quality === 'insider') {
+
+        // we pause insider builds for automated releases before releasing
+        // the next stable version for a few days. history has proven that
+        // performance regressions can come in during this time due to debt
+        // work starting. as such, we want performance testing to run even
+        // over unreleased builds from the `main` branch. the `--unreleased`
+        // command line argument ensures this
+
+        args.push('--unreleased');
+    }
     if (opts.folder) {
         args.push('--folder', opts.folder);
     }
