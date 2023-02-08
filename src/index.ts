@@ -267,7 +267,7 @@ async function sendSlackMessage(data: PerfData, opts: Opts): Promise<void> {
 
     let summary = `${platformIcon} ${qualityIcon} ${bestDuration! < Constants.FAST ? ':rocket:' : ':hankey:'} Summary: BEST \`${bestDuration}ms\`, VERSION \`${commit}\``;
     if (opts.runtime === 'web') {
-        summary += `, SCENARIO \`${opts.gist ? 'standard remote' : 'empty window'}\``;
+        summary += `, SCENARIO \`${opts.githubToken ? 'standard remote' : 'empty window'}\``;
     }
 
     const detail = `\`\`\`${lines.join('\n')}\`\`\``;
