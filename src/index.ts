@@ -121,7 +121,7 @@ async function runPerformanceTest(opts: Opts): Promise<void> {
         '10'
     ]
 
-    if (opts.quality === 'insider') {
+    if (build === 'insider') {
 
         // we pause insider builds for automated releases before releasing
         // the next stable version for a few days. history has proven that
