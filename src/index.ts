@@ -29,6 +29,8 @@ interface Opts {
 
     readonly verbose?: boolean;
     readonly runtimeTrace?: boolean;
+
+    readonly disableCachedData?: boolean;
 }
 
 const Constants = {
@@ -147,6 +149,9 @@ async function runPerformanceTest(opts: Opts): Promise<void> {
     if (opts.runtimeTrace) {
         // Collects metrics for loading, navigation and v8 script compilation phases.
         args.push('--runtime-trace-categories="benchmark,browser,content,loading,navigation,mojom,renderer_host,startup,toplevel,v8,disabled-by-default-loading,disabled-by-default-network,disabled-by-default-v8.compile"');
+    }
+    if (opts.disableCachedData) {
+        args.push('--disable-cached-data');
     }
 
     return new Promise(resolve => {
@@ -319,7 +324,8 @@ module.exports = async function (argv: string[]): Promise<void> {
         .option('--slack-message-threads <filepath>', `a file in which commit -> message thread mappings are stored`)
         .option('-f, --fast <number>', 'what time is considered a fast performance run')
         .option('-v, --verbose', 'logs verbose output to the console when errors occur')
-        .option('--runtime-trace', 'enable startup tracing of the runtime');
+        .option('--runtime-trace', 'enable startup tracing of the runtime')
+        .option('--disable-cached-data', 'Disable V8 code caching (desktop only)');
 
     const opts: Opts = program.parse(argv).opts();
     if (opts.fast) {
