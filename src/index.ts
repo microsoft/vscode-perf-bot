@@ -15,6 +15,7 @@ import { WebClient, LogLevel, ChatPostMessageArguments } from '@slack/web-api';
 interface Opts {
     readonly runtime?: 'desktop' | 'web';
     readonly quality?: 'stable' | 'insider' | 'exploration';
+    readonly commit?: string;
 
     readonly folder?: string;
     readonly file?: string;
@@ -133,6 +134,9 @@ async function runPerformanceTest(opts: Opts): Promise<void> {
         // command line argument ensures this
 
         args.push('--unreleased');
+    }
+    if (opts.commit) {
+        args.push('--commit', opts.commit);
     }
     if (opts.folder) {
         args.push('--folder', opts.folder);
@@ -316,6 +320,7 @@ module.exports = async function (argv: string[]): Promise<void> {
     program
         .addOption(new Option('-r, --runtime <runtime>', 'whether to measure startup performance with vscode.dev or local desktop (default) version').choices(['desktop', 'web']))
         .addOption(new Option('-q, --quality <quality>', 'the quality to test (insiders by default)').choices(['stable', 'insider', 'exploration']))
+        .option('-c, --commit <commit|latest>', 'commit hash of a specific build to test or "latest" published build (default)')
         .option('--folder <folder path>', 'a folder path to open (desktop only)')
         .option('--file <file path>', 'a file path to open (desktop only)')
         .option('--github-token <token>', `a GitHub token of scopes 'repo', 'workflow', 'user:email', 'read:user', 'gist' to enable additional performance tests targetting web and logging to a Gist`)
