@@ -288,7 +288,15 @@ async function sendSlackMessage(data: PerfData, opts: Opts): Promise<void> {
 
     // goal: one message-thread per commit.
     // check for an existing thread and post a reply to it. 
-    let thread_ts = messageThreadsByCommit.get(commit);
+    // update the thread main message to the fastest run.
+    let thread_ts: string | undefined = undefined;
+    let bestThreadRun: number | undefined = undefined;
+    const messageMetadata = messageThreadsByCommit.get(commit)?.split('|');
+    if (messageMetadata) {
+        thread_ts = messageMetadata[0];
+        bestThreadRun = Number(messageMetadata[1]);
+    }
+
     if (!thread_ts) {
         const result = await slack.chat.postMessage({
             ...stub,
@@ -297,7 +305,15 @@ async function sendSlackMessage(data: PerfData, opts: Opts): Promise<void> {
 
         if (result.ts) {
             thread_ts = result.ts
-            messageThreadsByCommit.set(commit, thread_ts);
+            messageThreadsByCommit.set(commit, [thread_ts, bestDuration].join('|'));
+        }
+    } else {
+        if (typeof bestThreadRun === 'number' && bestDuration < bestThreadRun) {
+            await slack.chat.update({
+                channel: stub.channel,
+                ts: thread_ts,
+                text: summary
+            })
         }
     }
 
