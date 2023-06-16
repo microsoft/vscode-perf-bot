@@ -313,7 +313,9 @@ async function sendSlackMessage(data: PerfData, opts: Opts): Promise<void> {
                 channel: stub.channel,
                 ts: thread_ts,
                 text: summary
-            })
+            });
+
+            messageThreadsByCommit.set(commit, [thread_ts, bestDuration].join('|'));
         }
     }
 
