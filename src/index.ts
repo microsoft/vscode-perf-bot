@@ -190,6 +190,10 @@ type PerfData = {
     readonly commit: string;
     readonly appName: string;
     readonly bestDuration: number;
+
+    readonly avgHeapUsed: number | undefined;
+    readonly avgHeapFreed: number | undefined;
+
     readonly lines: string[];
 }
 
@@ -201,19 +205,30 @@ function parsePerfFile(): PerfData | undefined {
 
     let commitValue = 'unknown';
     let appNameValue = 'unknown';
-    let bestDuration: number = Number.MAX_SAFE_INTEGER
+    let bestDuration: number = Number.MAX_SAFE_INTEGER;
+    let heapsUsed: number[] = [];
+    let heapsFreed: number[] = [];
     for (const line of rawLines) {
         if (!line) {
             continue;
         }
 
-        const [durationRaw, appName, commit] = line.split('\t');
+        const [durationRaw, appName, commit, sessionId, info, perfBaseline, heap] = line.split('\t');
         const duration = Number(durationRaw);
 
         appNameValue = appName;
         commitValue = commit;
         if (duration < bestDuration) {
             bestDuration = duration;
+        }
+
+        if (heap) { // currently only supported for web
+            const res = /Heap: (\d+)MB \(used\) (\d+)MB \(garbage\)/.exec(heap);
+            if (res) {
+                const [, heapUsed, heapFreed] = res;
+                heapsUsed.push(Number(heapUsed));
+                heapsFreed.push(Number(heapFreed));
+            }
         }
 
         lines.push(`${duration < Constants.FAST ? 'FAST' : 'SLOW'} ${line}`);
@@ -229,6 +244,8 @@ function parsePerfFile(): PerfData | undefined {
         commit: commitValue,
         appName: appNameValue,
         bestDuration: bestDuration,
+        avgHeapUsed: heapsUsed.length ? Math.round(heapsUsed.reduce((p, c) => p + c, 0) / heapsUsed.length) : undefined,
+        avgHeapFreed: heapsFreed.length ? Math.round(heapsFreed.reduce((p, c) => p + c, 0) / heapsFreed.length) : undefined,
         lines
     }
 }
@@ -250,7 +267,7 @@ async function sendSlackMessage(data: PerfData, opts: Opts): Promise<void> {
         }
     }
 
-    const { commit, bestDuration, appName, lines } = data;
+    const { commit, bestDuration, avgHeapUsed, avgHeapFreed, lines } = data;
 
     const slack = new WebClient(opts.slackToken, { logLevel: LogLevel.ERROR });
 
@@ -282,6 +299,9 @@ async function sendSlackMessage(data: PerfData, opts: Opts): Promise<void> {
     let summary = `${platformIcon} ${qualityIcon} ${bestDuration! < Constants.FAST ? ':rocket:' : ':hankey:'} Summary: BEST \`${bestDuration}ms\`, VERSION \`${commit}\``;
     if (opts.runtime === 'web') {
         summary += `, SCENARIO \`${opts.githubToken ? 'standard remote' : 'empty window'}\``;
+    }
+    if (avgHeapUsed && avgHeapFreed) {
+        summary += `, HEAP \`${avgHeapUsed}MB (used) ${avgHeapFreed}MB (garbage) ${Math.round(avgHeapFreed / avgHeapUsed * 100)}% (ratio) \``;
     }
 
     const detail = `\`\`\`${lines.join('\n')}\`\`\``;
