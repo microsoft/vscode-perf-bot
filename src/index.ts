@@ -315,7 +315,7 @@ async function sendSlackMessage(data: PerfData, opts: Opts): Promise<void> {
         summary += `, SCENARIO \`${opts.githubToken ? 'standard remote' : 'empty window'}\``;
     }
     if (bestHeapUsed && bestHeapGarbage) {
-        summary += `, HEAP \`${bestHeapUsed}MB (used) ${bestHeapGarbage}MB (garbage) ${Math.round(bestHeapGarbage / bestHeapUsed * 100)}% (ratio)\``;
+        summary += `, HEAP \`${bestHeapUsed}MB (used) ${bestHeapGarbage}MB (garbage) ${Math.round(bestHeapGarbage / (bestHeapUsed + bestHeapGarbage) * 100)}% (ratio)\``;
     }
     if (bestMajorGCs && bestMinorGCs && bestGCDuration) {
         summary += `, GC \`${bestMajorGCs} (MajorGC) ${bestMinorGCs} (MinorGC) ${bestGCDuration}ms (duration)\``;
