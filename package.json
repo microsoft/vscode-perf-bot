@@ -1,6 +1,6 @@
 {
     "name": "@vscode/vscode-perf-bot",
-    "version": "0.2.6",
+    "version": "0.2.7",
     "description": "Allows to run performance tests with Slack bot messages for VS Code.",
     "repository": {
         "type": "git",

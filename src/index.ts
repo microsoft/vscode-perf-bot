@@ -84,14 +84,7 @@ async function logGist(opts: Opts): Promise<void> {
     });
 }
 
-async function runPerformanceTest(opts: Opts): Promise<void> {
-    log(`${chalk.gray('[init]')} storing performance results in ${chalk.green(Constants.PERF_FILE)}`);
-
-    fs.mkdirSync(path.dirname(Constants.PERF_FILE), { recursive: true });
-    if (fs.existsSync(Constants.PERF_FILE)) {
-        fs.truncateSync(Constants.PERF_FILE);
-    }
-
+async function runPerformanceTest(opts: Opts, enableHeapStatistics: boolean, runs: number): Promise<void> {
     let build: string;
     if (opts.runtime === 'web') {
         if (opts.quality === 'stable') {
@@ -120,10 +113,13 @@ async function runPerformanceTest(opts: Opts): Promise<void> {
         Constants.RUNTIME,
         '--prof-append-timers',
         Constants.PERF_FILE,
-        '--prof-append-heap-statistics',
         '--runs',
-        '10'
+        `${runs}`
     ]
+
+    if (enableHeapStatistics) {
+        args.push('--prof-append-heap-statistics');
+    }
 
     if (build === 'insider') {
 
@@ -211,7 +207,7 @@ function parsePerfFile(): PerfData | undefined {
     let commitValue = 'unknown';
     let appNameValue = 'unknown';
     let bestDuration: number = Number.MAX_SAFE_INTEGER;
-    let bestHeapUsed: number = 0;
+    let bestHeapUsed: number = Number.MAX_SAFE_INTEGER;
     let bestHeapGarbage: number = 0;
     let bestMajorGCs: number = 0;
     let bestMinorGCs: number = 0;
@@ -228,11 +224,13 @@ function parsePerfFile(): PerfData | undefined {
         commitValue = commit;
         if (duration < bestDuration) {
             bestDuration = duration;
+        }
 
-            if (heap) {
-                const res = /Heap: (\d+)MB \(used\) (\d+)MB \(garbage\) (\d+) \(MajorGC\) (\d+) \(MinorGC\) (\d+)ms \(GC duration\)/.exec(heap);
-                if (res) {
-                    const [, used, garbage, majorGC, minorGC, gcDuration] = res;
+        if (heap) {
+            const res = /Heap: (\d+)MB \(used\) (\d+)MB \(garbage\) (\d+) \(MajorGC\) (\d+) \(MinorGC\) (\d+)ms \(GC duration\)/.exec(heap);
+            if (res) {
+                const [, used, garbage, majorGC, minorGC, gcDuration] = res;
+                if ((Number(used) + Number(garbage)) < (bestHeapUsed + bestHeapGarbage)) {
                     bestHeapUsed = Number(used);
                     bestHeapGarbage = Number(garbage);
                     bestMajorGCs = Number(majorGC);
@@ -245,8 +243,8 @@ function parsePerfFile(): PerfData | undefined {
         lines.push(`${duration < Constants.FAST ? 'FAST' : 'SLOW'} ${line}`);
     }
 
-    if (lines.length < 5) {
-        log(`${chalk.red('[perf] found less than 5 performance results, refusing to send chat message')}`, true);
+    if (lines.length < 1) {
+        log(`${chalk.red('[perf] found no performance results, refusing to send chat message')}`, true);
 
         return undefined;
     }
@@ -318,7 +316,7 @@ async function sendSlackMessage(data: PerfData, opts: Opts): Promise<void> {
         summary += `, HEAP \`${bestHeapUsed}MB (used) ${bestHeapGarbage}MB (garbage) ${Math.round(bestHeapGarbage / (bestHeapUsed + bestHeapGarbage) * 100)}% (ratio)\``;
     }
     if (bestMajorGCs && bestMinorGCs && bestGCDuration) {
-        summary += `, GC \`${bestMajorGCs} (MajorGC) ${bestMinorGCs} (MinorGC) ${bestGCDuration}ms (duration)\``;
+        summary += `, GCs \`${bestMajorGCs + bestMinorGCs} blocking ${bestGCDuration}ms\``;
     }
 
     const detail = `\`\`\`${lines.join('\n')}\`\`\``;
@@ -401,9 +399,17 @@ module.exports = async function (argv: string[]): Promise<void> {
     }, Constants.TIMEOUT / 2);
 
     try {
+        log(`${chalk.gray('[init]')} storing performance results in ${chalk.green(Constants.PERF_FILE)}`);
 
-        // Run performance test and write to prof-startup.txt
-        await runPerformanceTest(opts);
+        fs.mkdirSync(path.dirname(Constants.PERF_FILE), { recursive: true });
+        if (fs.existsSync(Constants.PERF_FILE)) {
+            fs.truncateSync(Constants.PERF_FILE);
+        }
+
+        // Run performance test and write to prof-startup.txt. Split into 2 runs
+        // with and without heap statistics because that can make execution slower
+        await runPerformanceTest(opts, false /* without heap statistics */, 10 /* runs */);
+        await runPerformanceTest(opts, true /* with heap statistics */, 5 /* runs */);
 
         // Parse performance result file
         const data = parsePerfFile();
