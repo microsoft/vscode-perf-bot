@@ -34,7 +34,7 @@
         "commander": "^9.4.0"
     },
     "devDependencies": {
-        "@types/node": "18.x",
+        "@types/node": "20.x",
         "typescript": "5.4.x"
     }
 }
