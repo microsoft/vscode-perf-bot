@@ -47,6 +47,11 @@ interface ILogEntry {
     message: string;
 }
 
+interface TestOpts {
+    enableHeapStatistics: boolean;
+    enableRuntimeTrace: boolean;
+}
+
 const logEntries: ILogEntry[] = [];
 const ansicolors = /[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g;
 function log(message: string, asError = false): void {
@@ -84,7 +89,7 @@ async function logGist(opts: Opts): Promise<void> {
     });
 }
 
-async function runPerformanceTest(opts: Opts, enableHeapStatistics: boolean, runs: number): Promise<void> {
+async function runPerformanceTest(opts: Opts, testOpts: TestOpts, runs: number): Promise<void> {
     let build: string;
     if (opts.runtime === 'web') {
         if (opts.quality === 'stable') {
@@ -117,7 +122,7 @@ async function runPerformanceTest(opts: Opts, enableHeapStatistics: boolean, run
         `${runs}`
     ]
 
-    if (enableHeapStatistics) {
+    if (testOpts.enableHeapStatistics) {
         args.push('--prof-append-heap-statistics');
     }
 
@@ -147,7 +152,7 @@ async function runPerformanceTest(opts: Opts, enableHeapStatistics: boolean, run
     if (opts.verbose) {
         args.push('--verbose');
     }
-    if (opts.runtimeTrace) {
+    if (testOpts.enableRuntimeTrace) {
         // Collects metrics for loading, navigation and v8 script compilation phases.
         args.push('--runtime-trace-categories="base,browser,content,loading,navigation,mojom,renderer_host,renderer,startup,toplevel,v8,blink,gpu,cc,disabled-by-default-v8.compile"');
     }
@@ -194,7 +199,7 @@ type PerfData = {
     readonly bestMajorGCs: number | undefined;
     readonly bestMinorGCs: number | undefined;
     readonly bestGCDuration: number | undefined;
-    readonly bestTraceFile: TraceFile | undefined;
+    readonly traceFile: TraceFile | undefined;
 
     readonly lines: string[];
 }
@@ -206,7 +211,7 @@ type TraceFile = {
     readonly stats: fs.Stats;
 }
 
-function parsePerfFile(collectRuntimTrace: boolean): PerfData | undefined {
+function parsePerfFile(): PerfData | undefined {
     const raw = fs.readFileSync(Constants.PERF_FILE, 'utf-8').toString();
     const rawLines = raw.split(/\r?\n/);
 
@@ -220,8 +225,7 @@ function parsePerfFile(collectRuntimTrace: boolean): PerfData | undefined {
     let bestMajorGCs: number = 0;
     let bestMinorGCs: number = 0;
     let bestGCDuration: number = 0;
-    let bestDurationIndex: number = 0;
-    let bestTraceFile: TraceFile | undefined;
+    let traceFile: TraceFile | undefined;
     for (const line of rawLines) {
         if (!line) {
             continue;
@@ -234,8 +238,6 @@ function parsePerfFile(collectRuntimTrace: boolean): PerfData | undefined {
         commitValue = commit;
         if (duration < bestDuration) {
             bestDuration = duration;
-        } else {
-            bestDurationIndex += 1;
         }
 
         if (heap) {
@@ -261,39 +263,37 @@ function parsePerfFile(collectRuntimTrace: boolean): PerfData | undefined {
         return undefined;
     }
 
-    if (collectRuntimTrace) {
-        const runtimeTracesDir = path.join(tmpdir(), 'vscode-perf', 'vscode-runtime-traces');
+    const runtimeTracesDir = path.join(tmpdir(), 'vscode-perf', 'vscode-runtime-traces');
 
-        try {
-            // Check if directory exists
-            if (fs.existsSync(runtimeTracesDir)) {
-                // Find all chrome trace files
-                const traceFiles = fs.readdirSync(runtimeTracesDir)
-                    .filter(file => file.startsWith('chrometrace_'))
-                    .map(file => {
-                        // Extract timestamp from filename
-                        const timestamp = parseInt(file.replace('chrometrace_', '').split('.')[0]);
-                        return {
-                            name: file,
-                            path: path.join(runtimeTracesDir, file),
-                            timestamp: timestamp,
-                            stats: fs.statSync(path.join(runtimeTracesDir, file))
-                        };
-                    })
-                    .filter(file => file.stats.isFile() && !isNaN(file.timestamp))
-                    .sort((a, b) => b.timestamp - a.timestamp);
+    try {
+        // Check if directory exists
+        if (fs.existsSync(runtimeTracesDir)) {
+            // Find all chrome trace files
+            const traceFiles = fs.readdirSync(runtimeTracesDir)
+                .filter(file => file.startsWith('chrometrace_'))
+                .map(file => {
+                    // Extract timestamp from filename
+                    const timestamp = parseInt(file.replace('chrometrace_', '').split('.')[0]);
+                    return {
+                        name: file,
+                        path: path.join(runtimeTracesDir, file),
+                        timestamp: timestamp,
+                        stats: fs.statSync(path.join(runtimeTracesDir, file))
+                    };
+                })
+                .filter(file => file.stats.isFile() && !isNaN(file.timestamp))
+                .sort((a, b) => b.timestamp - a.timestamp);
 
-                if (traceFiles.length === 0) {
-                    log(`${chalk.yellow('[perf]')} no runtime trace files found in ${runtimeTracesDir}`);
-                } else {
-                    // Get the best trace file
-                    bestTraceFile = traceFiles[bestDurationIndex];
-                    log(`${chalk.gray('[perf]')} best runtime trace file: ${bestTraceFile.name}`);
-                }
+            if (traceFiles.length === 2) {
+                // Get the best trace file
+                traceFile = traceFiles[0];
+                log(`${chalk.gray('[perf]')} best runtime trace file: ${traceFile.name}`);
+            } else {
+                log(`${chalk.yellow('[perf]')} unexpected number of trace files in ${runtimeTracesDir}`);
             }
-        } catch (err) {
-            log(`${chalk.red('[perf]')} error reading runtime trace files: ${err}`, true);
         }
+    } catch (err) {
+        log(`${chalk.red('[perf]')} error reading runtime trace files: ${err}`, true);
     }
 
     return {
@@ -305,7 +305,7 @@ function parsePerfFile(collectRuntimTrace: boolean): PerfData | undefined {
         bestMajorGCs,
         bestMinorGCs,
         bestGCDuration,
-        bestTraceFile,
+        traceFile,
         lines
     }
 }
@@ -327,7 +327,7 @@ async function sendSlackMessage(data: PerfData, opts: Opts): Promise<void> {
         }
     }
 
-    const { commit, bestDuration, bestHeapUsed, bestHeapGarbage, bestMajorGCs, bestMinorGCs, bestGCDuration, bestTraceFile, lines } = data;
+    const { commit, bestDuration, bestHeapUsed, bestHeapGarbage, bestMajorGCs, bestMinorGCs, bestGCDuration, traceFile, lines } = data;
 
     const slack = new WebClient(opts.slackToken, { logLevel: LogLevel.ERROR });
 
@@ -409,57 +409,55 @@ async function sendSlackMessage(data: PerfData, opts: Opts): Promise<void> {
     });
 
     // Upload runtime trace file if tracing was enabled
-    if (opts.runtimeTrace) {
-        if (bestTraceFile) {
-            log(`${chalk.gray('[perf]')} uploading trace file for best run (${bestDuration}ms): ${bestTraceFile.name}`);
+    if (traceFile) {
+        log(`${chalk.gray('[perf]')} uploading trace file : ${traceFile.name}`);
 
-            try {
-                // Get file content as buffer
-                const fileContent = fs.readFileSync(bestTraceFile.path);
+        try {
+            // Get file content as buffer
+            const fileContent = fs.readFileSync(traceFile.path);
 
-                // Get upload URL from Slack
-                const uploadUrlResponse = await slack.files.getUploadURLExternal({
-                    filename: bestTraceFile.name,
-                    length: bestTraceFile.stats.size
-                });
+            // Get upload URL from Slack
+            const uploadUrlResponse = await slack.files.getUploadURLExternal({
+                filename: traceFile.name,
+                length: traceFile.stats.size
+            });
 
-                if (!uploadUrlResponse.ok || !uploadUrlResponse.upload_url) {
-                    log(`${chalk.red('[perf]')} failed to get upload URL for ${bestTraceFile.name}`, true);
-                    return;
-                }
-
-                // Upload file to the provided URL
-                const uploadResponse = await fetch(uploadUrlResponse.upload_url, {
-                    method: 'POST',
-                    body: fileContent,
-                    headers: {
-                        'Content-Type': 'application/octet-stream'
-                    }
-                });
-
-                if (!uploadResponse.ok) {
-                    log(`${chalk.red('[perf]')} failed to upload file ${bestTraceFile.name}`, true);
-                    return;
-                }
-
-                // Complete the upload process by calling files.completeUploadExternal
-                const completeResponse = await slack.files.completeUploadExternal({
-                    files: [{
-                        id: uploadUrlResponse.file_id!,
-                        title: `Runtime trace for best run (${bestDuration}ms): ${bestTraceFile.name}`,
-                    }],
-                    channel_id: stub.channel,
-                    thread_ts
-                });
-
-                if (completeResponse.ok) {
-                    log(`${chalk.gray('[perf]')} successfully uploaded trace file ${bestTraceFile.name}`);
-                } else {
-                    log(`${chalk.red('[perf]')} failed to complete upload for ${bestTraceFile.name}`, true);
-                }
-            } catch (err) {
-                log(`${chalk.red('[perf]')} error uploading trace file ${bestTraceFile.name}: ${err}`, true);
+            if (!uploadUrlResponse.ok || !uploadUrlResponse.upload_url) {
+                log(`${chalk.red('[perf]')} failed to get upload URL for ${traceFile.name}`, true);
+                return;
             }
+
+            // Upload file to the provided URL
+            const uploadResponse = await fetch(uploadUrlResponse.upload_url, {
+                method: 'POST',
+                body: fileContent,
+                headers: {
+                    'Content-Type': 'application/octet-stream'
+                }
+            });
+
+            if (!uploadResponse.ok) {
+                log(`${chalk.red('[perf]')} failed to upload file ${traceFile.name}`, true);
+                return;
+            }
+
+            // Complete the upload process by calling files.completeUploadExternal
+            const completeResponse = await slack.files.completeUploadExternal({
+                files: [{
+                    id: uploadUrlResponse.file_id!,
+                    title: `Runtime trace : ${traceFile.name}`,
+                }],
+                channel_id: stub.channel,
+                thread_ts
+            });
+
+            if (completeResponse.ok) {
+                log(`${chalk.gray('[perf]')} successfully uploaded trace file ${traceFile.name}`);
+            } else {
+                log(`${chalk.red('[perf]')} failed to complete upload for ${traceFile.name}`, true);
+            }
+        } catch (err) {
+            log(`${chalk.red('[perf]')} error uploading trace file ${traceFile.name}: ${err}`, true);
         }
     }
 
@@ -509,13 +507,16 @@ module.exports = async function (argv: string[]): Promise<void> {
             fs.truncateSync(Constants.PERF_FILE);
         }
 
-        // Run performance test and write to prof-startup.txt. Split into 2 runs
-        // with and without heap statistics because that can make execution slower
-        await runPerformanceTest(opts, false /* without heap statistics */, 10 /* runs */);
-        await runPerformanceTest(opts, true /* with heap statistics */, 5 /* runs */);
+        // Run performance test and write to prof-startup.txt. Split into 3 runs
+        // 1. Run without heap statistics and without collecting runtime trace
+        // 2. Run with heap statistics and without collecting runtime trace
+        // 3. Run without heap statistics and with collecting runtime trace
+        await runPerformanceTest(opts, {enableHeapStatistics: false, enableRuntimeTrace: false }, 10 /* runs */);
+        await runPerformanceTest(opts, {enableHeapStatistics: true, enableRuntimeTrace: false }, 5 /* runs */);
+        await runPerformanceTest(opts, {enableHeapStatistics: false, enableRuntimeTrace: true }, 2 /* runs */);
 
         // Parse performance result file
-        const data = parsePerfFile(opts.runtimeTrace ?? false);
+        const data = parsePerfFile();
 
         // Send message to Slack
         if (data) {
