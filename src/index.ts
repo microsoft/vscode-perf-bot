@@ -32,6 +32,8 @@ interface Opts {
     readonly runtimeTrace?: boolean;
 
     readonly disableCachedData?: boolean;
+
+    readonly fetchCommitUrl?: string;
 }
 
 const Constants = {
@@ -89,6 +91,21 @@ async function logGist(opts: Opts): Promise<void> {
     });
 }
 
+async function fetchCommit(opts: Opts): Promise<string | undefined> {
+    if (!opts.fetchCommitUrl) {
+        return;
+    }
+
+    try {
+        const result = await fetch(opts.fetchCommitUrl);
+        return result.text();
+    } catch (error) {
+        log(`${chalk.red('[http]')} failed to fetch commit: ${error}`);
+    }
+
+    return undefined;
+}
+
 async function runPerformanceTest(opts: Opts, testOpts: TestOpts, runs: number): Promise<void> {
     let build: string;
     if (opts.runtime === 'web') {
@@ -139,6 +156,13 @@ async function runPerformanceTest(opts: Opts, testOpts: TestOpts, runs: number):
     }
     if (opts.commit) {
         args.push('--commit', opts.commit);
+    } else if (opts.fetchCommitUrl) {
+        const commit = await fetchCommit(opts);
+        if (commit) {
+            args.push('--commit', commit);
+        } else {
+            return; // if no commit is found, do not attempt to run the test
+        }
     }
     if (opts.folder) {
         args.push('--folder', opts.folder);
@@ -357,6 +381,9 @@ async function sendSlackMessage(data: PerfData, opts: Opts): Promise<void> {
     }
 
     let summary = `${platformIcon} ${qualityIcon} ${bestDuration! < Constants.FAST ? ':rocket:' : ':hankey:'} Summary: BEST \`${bestDuration}ms\`, VERSION \`${commit}\``;
+    if (opts.fetchCommitUrl) {
+        summary += `, :warning: CUSTOM BUILD :test_tube: :test_tube: :test_tube:`;
+    }
     if (opts.runtime === 'web') {
         summary += `, SCENARIO \`${opts.githubToken ? 'standard remote' : 'empty window'}\``;
     }
@@ -484,7 +511,8 @@ module.exports = async function (argv: string[]): Promise<void> {
         .option('-f, --fast <number>', 'what time is considered a fast performance run')
         .option('-v, --verbose', 'logs verbose output to the console when errors occur')
         .option('--runtime-trace', 'enable startup tracing of the runtime')
-        .option('--disable-cached-data', 'Disable V8 code caching (desktop only)');
+        .option('--disable-cached-data', 'Disable V8 code caching (desktop only)')
+        .option('--fetchCommitUrl <url>', 'A remote resource to fetch the commit from');
 
     const opts: Opts = program.parse(argv).opts();
     if (opts.fast) {
@@ -511,9 +539,9 @@ module.exports = async function (argv: string[]): Promise<void> {
         // 1. Run without heap statistics and without collecting runtime trace
         // 2. Run with heap statistics and without collecting runtime trace
         // 3. Run without heap statistics and with collecting runtime trace
-        await runPerformanceTest(opts, {enableHeapStatistics: false, enableRuntimeTrace: false }, 10 /* runs */);
-        await runPerformanceTest(opts, {enableHeapStatistics: true, enableRuntimeTrace: false }, 5 /* runs */);
-        await runPerformanceTest(opts, {enableHeapStatistics: false, enableRuntimeTrace: true }, 2 /* runs */);
+        await runPerformanceTest(opts, { enableHeapStatistics: false, enableRuntimeTrace: false }, 10 /* runs */);
+        await runPerformanceTest(opts, { enableHeapStatistics: true, enableRuntimeTrace: false }, 5 /* runs */);
+        await runPerformanceTest(opts, { enableHeapStatistics: false, enableRuntimeTrace: true }, 2 /* runs */);
 
         // Parse performance result file
         const data = parsePerfFile();
