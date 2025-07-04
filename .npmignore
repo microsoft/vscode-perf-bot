@@ -1,5 +1,6 @@
 src/
 .gitignore
+.commit
 tsconfig.json
 **/*.js.map
 .vscode/
