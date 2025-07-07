@@ -160,6 +160,7 @@ async function runPerformanceTest(opts: Opts, testOpts: TestOpts, runs: number):
         const commit = await fetchCommit(opts);
         if (commit) {
             args.push('--commit', commit);
+            args.push('--disable-telemetry'); // using a custom commit, we do not want to pollute the perf telemetry dashboards
         } else {
             return; // if no commit is found, do not attempt to run the test
         }
