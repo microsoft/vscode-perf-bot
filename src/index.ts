@@ -98,7 +98,10 @@ async function fetchCommit(opts: Opts): Promise<string | undefined> {
 
     try {
         const result = await fetch(opts.fetchCommitUrl);
-        return result.text();
+        const commit = await result.text();
+        if (/^[0-9a-f]{40}$/.test(commit)) {
+            return commit;
+        }
     } catch (error) {
         log(`${chalk.red('[http]')} failed to fetch commit: ${error}`);
     }
